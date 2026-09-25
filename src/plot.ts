@@ -16,13 +16,22 @@ export interface PlotExtents {
   maxY: number;
 }
 
-/** Fit both paths into the canvas with margins; returns world→screen mappers. */
+export interface Mapper {
+  sx: (x: number) => number;
+  sy: (y: number) => number;
+  /** Inverse: screen px → world meters. */
+  wx: (px: number) => number;
+  wy: (py: number) => number;
+  scale: number;
+}
+
+/** Fit both paths into the canvas with margins; returns world↔screen mappers. */
 export function makeMapper(
   extents: PlotExtents,
   width: number,
   height: number,
   margin = 46,
-): { sx: (x: number) => number; sy: (y: number) => number; scale: number } {
+): Mapper {
   const scale = Math.min(
     (width - margin * 2) / Math.max(1e-6, extents.maxX),
     (height - margin * 2) / Math.max(1e-6, extents.maxY),
@@ -30,6 +39,8 @@ export function makeMapper(
   return {
     sx: (x) => margin + x * scale,
     sy: (y) => height - margin - y * scale,
+    wx: (px) => (px - margin) / scale,
+    wy: (py) => (height - margin - py) / scale,
     scale,
   };
 }
@@ -52,13 +63,15 @@ export function drawPlot(
   actual: SimPoint[],
   markerT: number | null,
   theme: PlotTheme,
-): void {
+  angleDeg: number,
+): Mapper {
   ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, width, height);
 
   const maxX = Math.max(...predicted.map((p) => p.x), ...actual.map((p) => p.x), 1);
   const maxY = Math.max(...predicted.map((p) => p.y), ...actual.map((p) => p.y), 1);
-  const { sx, sy } = makeMapper({ maxX, maxY }, width, height);
+  const mapper = makeMapper({ maxX, maxY }, width, height);
+  const { sx, sy } = mapper;
 
   // Grid + labels.
   const step = gridStep(Math.max(maxX, maxY));
@@ -122,6 +135,41 @@ export function drawPlot(
     ctx.arc(sx(p.x), sy(p.y), 7, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  // Launch-angle indicator: arrow + degree arc at the origin (drag on the chart to aim).
+  const rad = (angleDeg * Math.PI) / 180;
+  const len = Math.min(width, height) * 0.16;
+  const ox = sx(0);
+  const oy = sy(0);
+  const tipX = ox + Math.cos(rad) * len;
+  const tipY = oy - Math.sin(rad) * len;
+  ctx.strokeStyle = theme.actual;
+  ctx.fillStyle = theme.actual;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(ox, oy);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+  // Arrowhead.
+  const head = 9;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - head * Math.cos(rad - 0.45), tipY + head * Math.sin(rad - 0.45));
+  ctx.lineTo(tipX - head * Math.cos(rad + 0.45), tipY + head * Math.sin(rad + 0.45));
+  ctx.closePath();
+  ctx.fill();
+  // Degree arc + label.
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(ox, oy, len * 0.45, -rad, 0);
+  ctx.stroke();
+  ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(`${Math.round(angleDeg)}°`, ox + len * 0.5 + 6, oy - 8);
+  ctx.fillStyle = theme.text;
+  ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText('drag on the chart to aim', ox + 4, oy + 26);
+
+  return mapper;
 }
 
 /** Linear interpolation along the sampled path at time t. */

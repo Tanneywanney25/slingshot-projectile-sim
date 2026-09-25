@@ -1,6 +1,6 @@
 import { analyticNoDrag, parabolaPoints } from './analytic';
 import { simulate, type SimResult } from './physics';
-import { drawPlot, type PlotTheme } from './plot';
+import { drawPlot, type Mapper, type PlotTheme } from './plot';
 
 interface Controls {
   v0: number;
@@ -33,10 +33,11 @@ if (!ctx) throw new Error('Canvas 2D context unavailable');
 const controlsEl = requireEl('#controls');
 const dataEl = requireEl('#data');
 
-const controls: Controls = { v0: 50, angleDeg: 45, g: 9.81, beta: 0.02 };
+const controls: Controls = { v0: 50, angleDeg: 45, g: 9.81, beta: 0.005 };
 
 let result: SimResult = simulate({ ...controls, dt: DT, maxT: 60 });
 let flightStart: number | null = null;
+let lastMapper: Mapper | null = null;
 
 const SLIDERS: {
   key: keyof Controls;
@@ -49,13 +50,25 @@ const SLIDERS: {
   { key: 'v0', label: 'Launch speed', min: 5, max: 100, step: 1, unit: 'm/s' },
   { key: 'angleDeg', label: 'Angle', min: 5, max: 85, step: 1, unit: '°' },
   { key: 'g', label: 'Gravity', min: 1, max: 25, step: 0.01, unit: 'm/s²' },
-  { key: 'beta', label: 'Drag β', min: 0, max: 0.1, step: 0.001, unit: '/m' },
+  { key: 'beta', label: 'Drag β', min: 0, max: 0.05, step: 0.001, unit: '/m' },
 ];
+
+const sliderInputs = new Map<keyof Controls, HTMLInputElement>();
+const sliderReadouts = new Map<keyof Controls, HTMLElement>();
 
 function rerun(): void {
   result = simulate({ ...controls, dt: DT, maxT: 60 });
   flightStart = null;
   renderData();
+}
+
+/** Reflect programmatic control changes (drag-to-aim) back into the sliders. */
+function syncSliderUI(key: keyof Controls): void {
+  const input = sliderInputs.get(key);
+  const readout = sliderReadouts.get(key);
+  const spec = SLIDERS.find((s) => s.key === key);
+  if (input) input.value = String(controls[key]);
+  if (readout && spec) readout.textContent = ` ${controls[key]} ${spec.unit}`;
 }
 
 function buildControls(): void {
@@ -78,6 +91,8 @@ function buildControls(): void {
     });
     label.append(input);
     controlsEl.append(label);
+    sliderInputs.set(spec.key, input);
+    sliderReadouts.set(spec.key, readout);
   }
   const fire = document.createElement('button');
   fire.type = 'button';
@@ -108,6 +123,36 @@ function renderData(): void {
     </div>`;
 }
 
+// --- Drag-to-aim on the chart ------------------------------------------------
+
+let aiming = false;
+
+function aimFromPointer(e: PointerEvent): void {
+  if (!lastMapper) return;
+  const rect = canvas.getBoundingClientRect();
+  const px = ((e.clientX - rect.left) / rect.width) * canvas.width;
+  const py = ((e.clientY - rect.top) / rect.height) * canvas.height;
+  const wx = lastMapper.wx(px);
+  const wy = lastMapper.wy(py);
+  if (wx <= 0 && wy <= 0) return;
+  const deg = (Math.atan2(wy, Math.max(0.001, wx)) * 180) / Math.PI;
+  controls.angleDeg = Math.round(Math.min(85, Math.max(5, deg)));
+  syncSliderUI('angleDeg');
+  rerun();
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  aiming = true;
+  canvas.setPointerCapture(e.pointerId);
+  aimFromPointer(e);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (aiming) aimFromPointer(e);
+});
+canvas.addEventListener('pointerup', () => {
+  aiming = false;
+});
+
 buildControls();
 renderData();
 
@@ -118,7 +163,7 @@ function frame(now: number): void {
     markerT = t <= result.summary.flightTime ? t : null;
     if (markerT === null) flightStart = null;
   }
-  drawPlot(
+  lastMapper = drawPlot(
     ctx as CanvasRenderingContext2D,
     canvas.width,
     canvas.height,
@@ -126,6 +171,7 @@ function frame(now: number): void {
     result.points,
     markerT,
     theme,
+    controls.angleDeg,
   );
   requestAnimationFrame(frame);
 }
