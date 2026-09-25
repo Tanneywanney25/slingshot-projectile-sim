@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Projectile Lab</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Projectile Lab</h1>
+        <p>RK4-integrated flight with quadratic drag — dashed line is the vacuum prediction.</p>
+      </header>
+      <div id="layout">
+        <canvas id="plot" width="820" height="520" aria-label="Trajectory plot"></canvas>
+        <aside id="panel">
+          <section id="controls"></section>
+          <section id="data"></section>
+        </aside>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
